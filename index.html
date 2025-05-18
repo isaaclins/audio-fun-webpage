@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Visualizer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            display: block;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #0f0;
+        }
+        #controls label, #controls input, #controls button {
+            margin: 5px;
+            color: #0f0;
+            background: #000;
+            border: 1px solid #0f0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #controls input[type="range"] {
+            vertical-align: middle;
+        }
+        #info {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-size: 12px;
+            text-align: right;
+        }
+        #startButton {
+            padding: 10px 15px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="visualizerCanvas"></canvas>
+    <div id="controls">
+        <button id="startButton">Start Microphone</button>
+        <br>
+        <label for="sensitivity">Sensitivity:</label>
+        <input type="range" id="sensitivity" min="1" max="200" value="100">
+        <br>
+        <label for="shapeType">Shape:</label>
+        <select id="shapeType">
+            <option value="cube">Cube</option>
+            <option value="sphere">Sphere</option>
+            <option value="grid">Grid</option>
+        </select>
+         <br>
+        <label for="color">Color:</label>
+        <input type="color" id="lineColor" value="#00FF00">
+    </div>
+    <div id="info">
+        Move mouse to rotate. <br>
+        Scroll to zoom.
+    </div>
+
+    <script>
+        const canvas = document.getElementById('visualizerCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const sensitivitySlider = document.getElementById('sensitivity');
+        const shapeSelector = document.getElementById('shapeType');
+        const lineColorInput = document.getElementById('lineColor');
+
+        let audioContext;
+        let analyser;
+        let microphone;
+        let dataArray;
+        let bufferLength;
+
+        let rotationX = 0;
+        let rotationY = 0;
+        let zoom = 1;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let isMouseDown = false;
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        startButton.addEventListener('click', initAudio);
+
+        async function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                microphone = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                const source = audioContext.createMediaStreamSource(microphone);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256; // Reduced for performance and responsiveness
+                source.connect(analyser);
+
+                bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+
+                startButton.style.display = 'none'; // Hide button after starting
+                if (document.getElementById('info')) document.getElementById('info').style.display = 'block';
+
+
+                draw();
+            } catch (err) {
+                console.error("Error accessing microphone:", err);
+                alert("Error accessing microphone. Please ensure permission is granted and try again. " + err.message);
+            }
+        }
+
+
+        function draw() {
+            requestAnimationFrame(draw);
+            if (!analyser) return;
+
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; // Fading effect
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(zoom, zoom);
+            ctx.rotate(rotationX);
+            ctx.rotate(rotationY);
+
+
+            const sensitivity = sensitivitySlider.value / 100;
+            let overallIntensity = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                overallIntensity += dataArray[i];
+            }
+            overallIntensity = (overallIntensity / bufferLength) / 128; // Normalize
+
+            const pulse = 1 + overallIntensity * sensitivity * 5; // Stronger pulse effect
+            const selectedShape = shapeSelector.value;
+            ctx.strokeStyle = lineColorInput.value;
+            ctx.lineWidth = 1.5;
+
+
+            if (selectedShape === 'cube') {
+                drawWireframeCube(100 * pulse);
+            } else if (selectedShape === 'sphere') {
+                drawWireframeSphere(100 * pulse, 12, 12);
+            } else if (selectedShape === 'grid') {
+                drawWireframeGrid(200 * pulse, 10);
+            }
+            
+            ctx.restore();
+        }
+
+        function drawWireframeCube(size) {
+            const halfSize = size / 2;
+            const vertices = [
+                [-halfSize, -halfSize, -halfSize],
+                [halfSize, -halfSize, -halfSize],
+                [halfSize, halfSize, -halfSize],
+                [-halfSize, halfSize, -halfSize],
+                [-halfSize, -halfSize, halfSize],
+                [halfSize, -halfSize, halfSize],
+                [halfSize, halfSize, halfSize],
+                [-halfSize, halfSize, halfSize]
+            ];
+
+            const edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // back face
+                [4, 5], [5, 6], [6, 7], [7, 4], // front face
+                [0, 4], [1, 5], [2, 6], [3, 7]  // connecting edges
+            ];
+
+            drawEdges(vertices, edges);
+        }
+        
+        function drawWireframeSphere(radius, latitudeBands, longitudeBands) {
+            const vertices = [];
+            for (let latNumber = 0; latNumber <= latitudeBands; latNumber++) {
+                const theta = latNumber * Math.PI / latitudeBands;
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
+
+                for (let longNumber = 0; longNumber <= longitudeBands; longNumber++) {
+                    const phi = longNumber * 2 * Math.PI / longitudeBands;
+                    const sinPhi = Math.sin(phi);
+                    const cosPhi = Math.cos(phi);
+
+                    const x = radius * cosPhi * sinTheta;
+                    const y = radius * sinPhi * sinTheta;
+                    const z = radius * cosTheta;
+                    vertices.push([x, y, z]);
+                }
+            }
+
+            const edges = [];
+            for (let latNumber = 0; latNumber < latitudeBands; latNumber++) {
+                for (let longNumber = 0; longNumber < longitudeBands; longNumber++) {
+                    const first = (latNumber * (longitudeBands + 1)) + longNumber;
+                    const second = first + longitudeBands + 1;
+                    edges.push([first, first + 1]);
+                    edges.push([first, second]);
+                    if (longNumber === longitudeBands -1) { // close the last segment of longitude
+                         edges.push([first + 1, second +1 ]);
+                    }
+                     if (latNumber === latitudeBands -1) { // close the last segment of latitude
+                         edges.push([second, second +1 ]);
+                    }
+                }
+            }
+            drawEdges(vertices, edges);
+        }
+
+        function drawWireframeGrid(size, segments) {
+            const step = size / segments;
+            const halfSize = size / 2;
+            const vertices = [];
+            const edges = [];
+            let vertexIndex = 0;
+
+            // Create vertices
+            for (let i = 0; i <= segments; i++) {
+                for (let j = 0; j <= segments; j++) {
+                    vertices.push([i * step - halfSize, j * step - halfSize, 0]); // Flat grid on xy plane
+                    // Z-pulsing vertices (could be an option)
+                    // const zPulse = (Math.sin(i * 0.5 + overallIntensity * 5) + Math.cos(j * 0.5 + overallIntensity * 5)) * 10 * overallIntensity;
+                    // vertices.push([i * step - halfSize, j * step - halfSize, zPulse]);
+                }
+            }
+            
+            // Create edges
+            for (let i = 0; i < segments; i++) {
+                for (let j = 0; j < segments; j++) {
+                    const current = i * (segments + 1) + j;
+                    const right = current + 1;
+                    const bottom = current + (segments + 1);
+                    edges.push([current, right]);
+                    edges.push([current, bottom]);
+                }
+            }
+            // Add rightmost vertical edges
+            for (let i = 0; i < segments; i++) {
+                 edges.push([ (i * (segments +1)) + segments, (i+1) * (segments+1) + segments ]);
+            }
+            // Add bottommost horizontal edges
+             for (let j = 0; j < segments; j++) {
+                 edges.push([ segments * (segments +1) + j, segments * (segments +1) + j + 1 ]);
+            }
+
+            drawEdges(vertices, edges);
+        }
+
+
+        function project(vertex) {
+            // Basic orthographic projection for simplicity, can be extended to perspective
+            return { x: vertex[0], y: vertex[1] };
+        }
+
+        function drawEdges(vertices, edges) {
+            ctx.beginPath();
+            edges.forEach(edge => {
+                const v1 = vertices[edge[0]];
+                const v2 = vertices[edge[1]];
+
+                // Simple 3D rotation (around Y and X axes)
+                const rotatedV1 = rotatePoint(v1, rotationY, rotationX);
+                const rotatedV2 = rotatePoint(v2, rotationY, rotationX);
+                
+                const p1 = project(rotatedV1);
+                const p2 = project(rotatedV2);
+
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+            });
+            ctx.stroke();
+        }
+
+        function rotatePoint(vertex, angleY, angleX) {
+            const [x, y, z] = vertex;
+
+            // Rotate around Y axis
+            const cosY = Math.cos(angleY);
+            const sinY = Math.sin(angleY);
+            const x1 = x * cosY - z * sinY;
+            const z1 = x * sinY + z * cosY;
+
+            // Rotate around X axis
+            const cosX = Math.cos(angleX);
+            const sinX = Math.sin(angleX);
+            const y2 = y * cosX - z1 * sinX;
+            const z2 = y * sinX + z1 * cosX;
+            
+            return [x1, y2, z2];
+        }
+
+
+        // Mouse controls for rotation and zoom
+        canvas.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isMouseDown) return;
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+
+            rotationY += deltaX * 0.01;
+            rotationX += deltaY * 0.01;
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault(); // Prevent page scrolling
+            zoom -= e.deltaY * 0.001;
+            zoom = Math.max(0.1, Math.min(zoom, 5)); // Clamp zoom level
+        });
+
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+    </script>
+</body>
+</html> 
