@@ -65,10 +65,14 @@
             <option value="cube">Cube</option>
             <option value="sphere">Sphere</option>
             <option value="grid">Grid</option>
+            <option value="torus">Torus</option>
         </select>
          <br>
         <label for="color">Color:</label>
         <input type="color" id="lineColor" value="#00FF00">
+        <br>
+        <label for="lineWidth">Line Thickness:</label>
+        <input type="range" id="lineWidth" min="0.5" max="5" value="1.5" step="0.1">
     </div>
     <div id="info">
         Move mouse to rotate. <br>
@@ -82,6 +86,7 @@
         const sensitivitySlider = document.getElementById('sensitivity');
         const shapeSelector = document.getElementById('shapeType');
         const lineColorInput = document.getElementById('lineColor');
+        const lineWidthSlider = document.getElementById('lineWidth');
 
         let audioContext;
         let analyser;
@@ -151,7 +156,7 @@
             const pulse = 1 + overallIntensity * sensitivity * 5; // Stronger pulse effect
             const selectedShape = shapeSelector.value;
             ctx.strokeStyle = lineColorInput.value;
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = parseFloat(lineWidthSlider.value);
 
 
             if (selectedShape === 'cube') {
@@ -160,6 +165,8 @@
                 drawWireframeSphere(100 * pulse, 12, 12);
             } else if (selectedShape === 'grid') {
                 drawWireframeGrid(200 * pulse, 10);
+            } else if (selectedShape === 'torus') {
+                drawWireframeTorus(100 * pulse, 40 * pulse, 20, 20);
             }
             
             ctx.restore();
@@ -263,6 +270,52 @@
             drawEdges(vertices, edges);
         }
 
+        function drawWireframeTorus(majorRadius, minorRadius, majorSegments, minorSegments) {
+            const vertices = [];
+            for (let i = 0; i <= majorSegments; i++) {
+                const majorAngle = (i / majorSegments) * 2 * Math.PI;
+                const cosMajor = Math.cos(majorAngle);
+                const sinMajor = Math.sin(majorAngle);
+
+                for (let j = 0; j <= minorSegments; j++) {
+                    const minorAngle = (j / minorSegments) * 2 * Math.PI;
+                    const cosMinor = Math.cos(minorAngle);
+                    const sinMinor = Math.sin(minorAngle);
+
+                    const x = (majorRadius + minorRadius * cosMinor) * cosMajor;
+                    const y = minorRadius * sinMinor;
+                    const z = (majorRadius + minorRadius * cosMinor) * sinMajor;
+                    vertices.push([x, y, z]);
+                }
+            }
+
+            const edges = [];
+            for (let i = 0; i < majorSegments; i++) {
+                for (let j = 0; j < minorSegments; j++) {
+                    const current = i * (minorSegments + 1) + j;
+                    const nextInMinor = current + 1;
+                    const nextInMajor = (i + 1) * (minorSegments + 1) + j;
+                    const nextBoth = nextInMajor + 1;
+
+                    edges.push([current, nextInMinor]);
+                    edges.push([current, nextInMajor]);
+                }
+            }
+            
+            for (let i = 0; i < majorSegments; i++) {
+                let firstMinor = i * (minorSegments + 1);
+                let lastMinor = i * (minorSegments + 1) + minorSegments;
+                
+                let firstMajorNextLoop = (i + 1) * (minorSegments + 1);
+                let lastMajorNextLoop = (i + 1) * (minorSegments + 1) + minorSegments;
+
+                if (i === majorSegments -1) {
+                     for (let j=0; j < minorSegments; j++) {
+                     }
+                }
+            }
+            drawEdges(vertices, edges);
+        }
 
         function project(vertex) {
             // Basic orthographic projection for simplicity, can be extended to perspective
