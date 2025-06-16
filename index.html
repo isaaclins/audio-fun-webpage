@@ -67,7 +67,11 @@
             <option value="grid">Grid</option>
             <option value="torus">Torus</option>
         </select>
-         <br>
+        <br>
+        <label for="bpm">BPM:</label>
+        <input type="number" id="bpm" value="120" min="40" max="240">
+        <button id="metronomeButton">Play Metronome</button>
+        <br>
         <label for="color">Color:</label>
         <input type="color" id="lineColor" value="#00FF00">
         <br>
@@ -87,6 +91,8 @@
         const shapeSelector = document.getElementById('shapeType');
         const lineColorInput = document.getElementById('lineColor');
         const lineWidthSlider = document.getElementById('lineWidth');
+        const bpmInput = document.getElementById('bpm');
+        const metronomeButton = document.getElementById('metronomeButton');
 
         let audioContext;
         let analyser;
@@ -101,12 +107,102 @@
         let lastMouseY = 0;
         let isMouseDown = false;
 
+        let metronomeScheduler;
+        let isMetronomePlaying = false;
+        let nextBeatTime = 0;
+
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
         startButton.addEventListener('click', initAudio);
+        metronomeButton.addEventListener('click', toggleMetronome);
+
+        function toggleMetronome() {
+            if (!isMetronomePlaying) {
+                startMetronome();
+            } else {
+                stopMetronome();
+            }
+        }
+
+        async function startMetronome() {
+            if (isMetronomePlaying) return;
+            isMetronomePlaying = true;
+            metronomeButton.textContent = 'Stop Metronome';
+
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 256;
+                    bufferLength = analyser.frequencyBinCount;
+                    dataArray = new Uint8Array(bufferLength);
+                    
+                    startButton.style.display = 'none';
+                    if (document.getElementById('info')) document.getElementById('info').style.display = 'block';
+
+                    draw();
+                } catch (e) {
+                    console.error("Error creating audio context:", e);
+                    alert("Could not create audio context. " + e.message);
+                    isMetronomePlaying = false;
+                    metronomeButton.textContent = 'Play Metronome';
+                    return;
+                }
+            }
+
+            if (microphone) {
+                microphone.getTracks().forEach(track => track.stop());
+                microphone = null;
+                // Disconnect the old source, which is now dead.
+                // The new source (oscillator) will be connected in playBeat.
+            }
+
+            nextBeatTime = audioContext.currentTime + 0.1;
+            scheduleBeat();
+        }
+
+        function stopMetronome() {
+            if (!isMetronomePlaying) return;
+            isMetronomePlaying = false;
+            metronomeButton.textContent = 'Play Metronome';
+            clearTimeout(metronomeScheduler);
+        }
+
+        function scheduleBeat() {
+            if (!isMetronomePlaying) return;
+
+            const bpm = parseInt(bpmInput.value, 10);
+            const interval = 60.0 / bpm;
+
+            while (nextBeatTime < audioContext.currentTime + 0.1) {
+                playBeat(nextBeatTime);
+                nextBeatTime += interval;
+            }
+            metronomeScheduler = setTimeout(scheduleBeat, 25);
+        }
+
+        function playBeat(time) {
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+
+            osc.connect(gain);
+            gain.connect(audioContext.destination);
+            gain.connect(analyser);
+
+            osc.frequency.setValueAtTime(220, time);
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.7, time + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+
+            osc.start(time);
+            osc.stop(time + 0.1);
+        }
 
         async function initAudio() {
+            if (isMetronomePlaying) {
+                stopMetronome();
+            }
             try {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 microphone = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
