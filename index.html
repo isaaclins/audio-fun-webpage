@@ -72,11 +72,21 @@
         <input type="number" id="bpm" value="120" min="40" max="240">
         <button id="metronomeButton">Play Metronome</button>
         <br>
+        <input type="checkbox" id="fadeToggle" style="vertical-align: middle;">
+        <label for="fadeToggle">Fade BPM</label>
+        <label for="fadeSeconds">every</label>
+        <input type="number" id="fadeSeconds" value="10" min="1" style="width: 50px;">
+        <label for="fadeSeconds">s</label>
+        <br>
         <label for="color">Color:</label>
         <input type="color" id="lineColor" value="#00FF00">
         <br>
         <label for="lineWidth">Line Thickness:</label>
         <input type="range" id="lineWidth" min="0.5" max="5" value="1.5" step="0.1">
+        <br>
+        <input type="checkbox" id="autoRotateToggle" style="vertical-align: middle;">
+        <label for="autoRotateToggle">Auto Rotate</label>
+        <input type="range" id="rotationSpeed" min="0" max="100" value="20">
     </div>
     <div id="info">
         Move mouse to rotate. <br>
@@ -93,6 +103,10 @@
         const lineWidthSlider = document.getElementById('lineWidth');
         const bpmInput = document.getElementById('bpm');
         const metronomeButton = document.getElementById('metronomeButton');
+        const fadeToggle = document.getElementById('fadeToggle');
+        const fadeSecondsInput = document.getElementById('fadeSeconds');
+        const autoRotateToggle = document.getElementById('autoRotateToggle');
+        const rotationSpeedSlider = document.getElementById('rotationSpeed');
 
         let audioContext;
         let analyser;
@@ -110,6 +124,7 @@
         let metronomeScheduler;
         let isMetronomePlaying = false;
         let nextBeatTime = 0;
+        let fadeStartTime = 0;
 
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
@@ -175,9 +190,15 @@
             const bpm = parseInt(bpmInput.value, 10);
             const interval = 60.0 / bpm;
 
-            while (nextBeatTime < audioContext.currentTime + 0.1) {
-                playBeat(nextBeatTime);
-                nextBeatTime += interval;
+            if (!fadeToggle.checked) {
+                fadeStartTime = 0; // Reset fade timer if disabled
+            }
+
+            if (interval > 0) {
+                while (nextBeatTime < audioContext.currentTime + 0.1) {
+                    playBeat(nextBeatTime);
+                    nextBeatTime += interval;
+                }
             }
             metronomeScheduler = setTimeout(scheduleBeat, 25);
         }
@@ -190,9 +211,26 @@
             gain.connect(audioContext.destination);
             gain.connect(analyser);
 
+            let peakVolume = 0.7;
+
+            if (fadeToggle.checked) {
+                const fadeDuration = parseFloat(fadeSecondsInput.value);
+                const minVolume = 0.01; // A low but non-zero volume
+
+                if (fadeStartTime === 0) {
+                    // Start the fade cycle from the time of this very beat.
+                    fadeStartTime = time;
+                }
+
+                const elapsed = time - fadeStartTime;
+                const fadeCycle = (Math.cos(elapsed * (2 * Math.PI / fadeDuration)) + 1) / 2; // oscillates between 0 and 1
+                const volumeRange = peakVolume - minVolume;
+                peakVolume = minVolume + (volumeRange * fadeCycle);
+            }
+
             osc.frequency.setValueAtTime(220, time);
             gain.gain.setValueAtTime(0, time);
-            gain.gain.linearRampToValueAtTime(0.7, time + 0.01);
+            gain.gain.linearRampToValueAtTime(peakVolume, time + 0.01);
             gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
 
             osc.start(time);
@@ -229,6 +267,12 @@
         function draw() {
             requestAnimationFrame(draw);
             if (!analyser) return;
+
+            if (autoRotateToggle.checked) {
+                const speed = rotationSpeedSlider.value / 5000;
+                rotationY += speed;
+                rotationX += speed * 0.7; // Add rotation on both axes for more interesting movement
+            }
 
             analyser.getByteFrequencyData(dataArray);
 
